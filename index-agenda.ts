@@ -10,30 +10,28 @@ interface Options {
   concurrency: number;
 }
 
-function sleep(seconds: number) {
-  return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-}
-
 const mongoConnectionString = 'mongodb://localhost:27018/agenda';
 
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function WriterMain(options: Options) {
   let queued = 0;
 
-    const agenda = new Agenda({
-      backend: new MongoBackend({
-        address: mongoConnectionString,
-        collection: `agendaJobs`,
-      }),
-    });
-    await agenda.start();
-
+  const agenda = new Agenda({
+    backend: new MongoBackend({
+      address: mongoConnectionString,
+      collection: 'agendaJobs',
+    }),
+  });
+  
   let barrier = makeBarrier(1);
   if (!parentPort) {
     throw new Error('parentPort is null');
   }
 
-  parentPort.once('message', (msg) => {
+  parentPort.once('message', () => {
     barrier();
   });
 
@@ -46,17 +44,16 @@ async function WriterMain(options: Options) {
   // Wait in chunks to avoid blocking the event loop
   const chunkSize = 2000;
   while (start + options.duration * 1000 > Date.now()) {
-      adding.push(agenda.now('benchmark-job', { param1: 'value1', param2: 'value2' }));
+    adding.push(agenda.now('benchmark-job', { param1: 'value1', param2: 'value2' }));
+    queued++;
 
-    if (adding.length > chunkSize) {
+    if (adding.length >= chunkSize) {
       await Promise.all(adding);
       adding = [];
     }
   }
 
   await Promise.all(adding);
-
-  await agenda.stop();
 
   parentPort.postMessage(queued);
 }
@@ -65,44 +62,35 @@ async function ReaderMain(options: Options) {
   let read = 0;
   let isClosing = false;
 
-    const agenda = new Agenda({
-      backend: new MongoBackend({
-        address: mongoConnectionString,
-        collection: `agendaJobs`,
-      }),
-      // Poll very frequently for benchmark purposes
-      processEvery: '50ms',
-      defaultConcurrency: options.concurrency,
-      maxConcurrency: options.concurrency,
-    });
+  const agenda = new Agenda({
+    backend: new MongoBackend({
+      address: mongoConnectionString,
+      collection: 'agendaJobs',
+    }),
+    processEvery: 50, // 50ms
+    defaultConcurrency: options.concurrency,
+    maxConcurrency: options.concurrency,
+    defaultLockLimit:10,
+  });
 
-    // Define the job handler
-    agenda.define('benchmark-job', async (job: Job) => {
-      if (isClosing) {
-        // Since we are closing we should not count this job
-        // as time has already expired.
-        return;
-      }
-      ++read;
-    });
+  // Define the job handler
+  agenda.define('benchmark-job', async (job: Job) => {
+    if (isClosing) {
+      return;
+    }
+    ++read;
+  });
 
-    await agenda.start();
+	await agenda.start();
 
 
-  await sleep(options.duration);
+  // Run for the specified duration
+  await sleep(options.duration * 1000);
 
   isClosing = true;
 
-  // Gracefully drain remaining jobs with a timeout
-    try {
-      await agenda.drain(2000); // 2 second timeout
-    } catch (e) {
-      // Ignore drain errors
-    }
-    finally {
-      await agenda.stop();
-    }
-
+  // Give time for in-flight jobs to complete, then stop
+  await sleep(500);
 
   if (!parentPort) {
     throw new Error('parentPort is null');
@@ -124,7 +112,7 @@ async function main() {
   const optionDefinitions = [
     { name: 'writers', alias: 'w', type: Number, defaultValue: 1 },
     { name: 'readers', alias: 'r', type: Number, defaultValue: 1 },
-    { name: 'duration', alias: 'd', type: Number, defaultValue: 1 },
+    { name: 'duration', alias: 'd', type: Number, defaultValue: 10 },
     { name: 'concurrency', alias: 'c', type: Number, defaultValue: 1 },
   ];
   const cliOptions = commandLineArgs(optionDefinitions);
@@ -143,35 +131,46 @@ async function main() {
   console.log(`Initializing ${options.writers} writers`);
   let writes: number[] = [];
   let writers: WorkerThread[] = [];
+  
   for (let i = 0; i < options.writers; ++i) {
-    let worker = new WorkerThread(__filename, { workerData: { type: 'writer', options } });
+    const worker = new WorkerThread(__filename, { workerData: { type: 'writer', options } });
     writers.push(worker);
-    worker.once('message', (value) => {
+    
+    worker.on('error', (err) => {
+      console.error(`Writer ${i} error:`, err);
+    });
+    
+    worker.once('message', () => {
       barrier();
     });
   }
   await barrier();
 
   barrier = makeBarrier(options.writers);
-  for (let writer of writers) {
+  for (const writer of writers) {
     writer.once('message', (value) => {
       writes.push(value);
       barrier();
     });
   }
 
-  for (let writer of writers) {
+  for (const writer of writers) {
     writer.postMessage("start");
   }
 
   await barrier();
 
   barrier = makeBarrier(options.readers);
-  const readers = options.readers;
-  console.log(`Initializing ${readers} readers`);
   let reads: number[] = [];
-  for (let i = 0; i < readers; ++i) {
-    let worker = new WorkerThread(__filename, { workerData: { type: 'reader', options } });
+
+  console.log(`Initializing ${options.readers} readers`);
+  for (let i = 0; i < options.readers; ++i) {
+    const worker = new WorkerThread(__filename, { workerData: { type: 'reader', options } });
+    
+    worker.on('error', (err) => {
+      console.error(`Reader ${i} error:`, err);
+    });
+    
     worker.once('message', (value) => {
       reads.push(value);
       barrier();
@@ -180,25 +179,32 @@ async function main() {
 
   await barrier();
 
-  console.log(`Threads finished`);
-
-  const total_writes = writes.reduce((sum, a) => sum += a, 0);
+  const total_writes = writes.reduce((sum, a) => sum + a, 0);
   console.log(`Total writes: ${PrintNumber(total_writes, options.duration)}`);
-  const total_reads = reads.reduce((sum, a) => sum += a, 0);
+  const total_reads = reads.reduce((sum, a) => sum + a, 0);
   console.log(`Total reads: ${PrintNumber(total_reads, options.duration)}`);
 }
 
 if (isMainThread) {
   main().catch(console.error);
 } else {
-  switch (workerData.type) {
-    case 'writer':
-      WriterMain(workerData.options).catch(console.error);
-      break;
-    case 'reader':
-      ReaderMain(workerData.options).catch(console.error);
-      break;
-    default:
-      throw new Error(`Unknown type ${workerData.type}`);
-  }
+  const runWorker = async () => {
+    try {
+      switch (workerData.type) {
+        case 'writer':
+          await WriterMain(workerData.options);
+          break;
+        case 'reader':
+          await ReaderMain(workerData.options);
+          break;
+        default:
+          throw new Error(`Unknown type ${workerData.type}`);
+      }
+    } catch (err) {
+      console.error(`Worker error (${workerData.type}):`, err);
+      throw err;
+    }
+  };
+  
+  runWorker();
 }
