@@ -11,6 +11,9 @@ importers:
       '@agendajs/mongo-backend':
         specifier: ^2.0.0
         version: 2.0.0(agenda@6.1.0)
+      '@agendajs/redis-backend':
+        specifier: ^2.0.0
+        version: 2.0.0(agenda@6.1.0)
       '@strong-roots-capital/barrier':
         specifier: ^1.0.1
         version: 1.0.1
@@ -35,6 +38,12 @@ packages:
 
   '@agendajs/mongo-backend@2.0.0':
     resolution: {integrity: sha512-3iQ+Ib2j5W/kEGDCJ6S1slXCBKNszAIbOPqzMEJtyn4VicGtiGc1BwmkD8CZ2C6GTFPMWi4vN8Nrs97FdxLw1w==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      agenda: 6.1.0
+
+  '@agendajs/redis-backend@2.0.0':
+    resolution: {integrity: sha512-zbNdZTgr+XBVFJ91wB3kIpua/vX2cevXyoTPGYfdNZiA2I5dARFwh76c6M3xlTij0tkdD71hHuH5+L+ElMqvAA==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       agenda: 6.1.0
@@ -332,6 +341,14 @@ snapshots:
       - mongodb-client-encryption
       - snappy
       - socks
+      - supports-color
+
+  '@agendajs/redis-backend@2.0.0(agenda@6.1.0)':
+    dependencies:
+      agenda: 6.1.0
+      debug: 4.4.3
+      ioredis: 5.9.2
+    transitivePeerDependencies:
       - supports-color
 
   '@ioredis/commands@1.5.0': {}

@@ -1,5 +1,6 @@
 import { Agenda, Job } from 'agenda';
 import { MongoBackend } from '@agendajs/mongo-backend';
+import { RedisBackend } from '@agendajs/redis-backend';
 import { Worker as WorkerThread, isMainThread, workerData, parentPort } from 'node:worker_threads';
 import makeBarrier from '@strong-roots-capital/barrier';
 
@@ -11,6 +12,7 @@ interface Options {
 }
 
 const mongoConnectionString = 'mongodb://localhost:27018/agenda';
+const redisConnectionString = 'redis://localhost:6379';
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -20,9 +22,8 @@ async function WriterMain(options: Options) {
   let queued = 0;
 
   const agenda = new Agenda({
-    backend: new MongoBackend({
-      address: mongoConnectionString,
-      collection: 'agendaJobs',
+    backend: new RedisBackend({
+      connectionString: redisConnectionString,
     }),
   });
   
@@ -63,9 +64,8 @@ async function ReaderMain(options: Options) {
   let isClosing = false;
 
   const agenda = new Agenda({
-    backend: new MongoBackend({
-      address: mongoConnectionString,
-      collection: 'agendaJobs',
+    backend: new RedisBackend({
+      connectionString: redisConnectionString,
     }),
     processEvery: 50, // 50ms
     defaultConcurrency: options.concurrency,

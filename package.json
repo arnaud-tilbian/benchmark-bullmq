@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@agendajs/mongo-backend": "^2.0.0",
+    "@agendajs/redis-backend": "^2.0.0",
     "@strong-roots-capital/barrier": "^1.0.1",
     "agenda": "^6.1.0",
     "bullmq": "^4.12.0",
