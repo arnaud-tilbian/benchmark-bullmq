@@ -8,7 +8,6 @@ interface Options {
   readers: number;
   duration: number;
   concurrency: number;
-  queues: number;
 }
 
 function sleep(seconds: number) {
@@ -21,18 +20,13 @@ const mongoConnectionString = 'mongodb://localhost:27018/agenda';
 async function WriterMain(options: Options) {
   let queued = 0;
 
-  // Create one agenda instance per queue
-  const agendas: Agenda[] = [];
-  for (let i = 0; i < options.queues; ++i) {
     const agenda = new Agenda({
       backend: new MongoBackend({
         address: mongoConnectionString,
-        collection: `agendaJobs${i}`,
+        collection: `agendaJobs`,
       }),
     });
     await agenda.start();
-    agendas.push(agenda);
-  }
 
   let barrier = makeBarrier(1);
   if (!parentPort) {
@@ -52,10 +46,7 @@ async function WriterMain(options: Options) {
   // Wait in chunks to avoid blocking the event loop
   const chunkSize = 2000;
   while (start + options.duration * 1000 > Date.now()) {
-    for (const agenda of agendas) {
       adding.push(agenda.now('benchmark-job', { param1: 'value1', param2: 'value2' }));
-    }
-    queued += agendas.length;
 
     if (adding.length > chunkSize) {
       await Promise.all(adding);
@@ -65,10 +56,7 @@ async function WriterMain(options: Options) {
 
   await Promise.all(adding);
 
-  // Stop all agenda instances gracefully
-  for (const agenda of agendas) {
-    await agenda.stop();
-  }
+  await agenda.stop();
 
   parentPort.postMessage(queued);
 }
@@ -77,13 +65,10 @@ async function ReaderMain(options: Options) {
   let read = 0;
   let isClosing = false;
 
-  // Create one agenda instance per queue
-  const agendas: Agenda[] = [];
-  for (let i = 0; i < options.queues; ++i) {
     const agenda = new Agenda({
       backend: new MongoBackend({
         address: mongoConnectionString,
-        collection: `agendaJobs${i}`,
+        collection: `agendaJobs`,
       }),
       // Poll very frequently for benchmark purposes
       processEvery: '50ms',
@@ -102,15 +87,13 @@ async function ReaderMain(options: Options) {
     });
 
     await agenda.start();
-    agendas.push(agenda);
-  }
+
 
   await sleep(options.duration);
 
   isClosing = true;
 
   // Gracefully drain remaining jobs with a timeout
-  for (const agenda of agendas) {
     try {
       await agenda.drain(2000); // 2 second timeout
     } catch (e) {
@@ -119,7 +102,7 @@ async function ReaderMain(options: Options) {
     finally {
       await agenda.stop();
     }
-  }
+
 
   if (!parentPort) {
     throw new Error('parentPort is null');
@@ -142,7 +125,6 @@ async function main() {
     { name: 'writers', alias: 'w', type: Number, defaultValue: 1 },
     { name: 'readers', alias: 'r', type: Number, defaultValue: 1 },
     { name: 'duration', alias: 'd', type: Number, defaultValue: 1 },
-    { name: 'queues', alias: 'q', type: Number, defaultValue: 1 },
     { name: 'concurrency', alias: 'c', type: Number, defaultValue: 1 },
   ];
   const cliOptions = commandLineArgs(optionDefinitions);
@@ -151,7 +133,6 @@ async function main() {
     writers: cliOptions.writers,
     readers: cliOptions.readers,
     duration: cliOptions.duration,
-    queues: cliOptions.queues,
     concurrency: cliOptions.concurrency,
   };
 
