@@ -1,12 +1,17 @@
 import {Agenda } from 'agenda';
-import { MongoBackend } from '@agendajs/mongo-backend';
+import { RedisBackend } from '@agendajs/redis-backend';
+
+function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 const agenda = new Agenda({
-	backend: new MongoBackend({
-		address: 'mongodb://localhost:27018/agenda',
-		collection: 'agendaJobs'
-	})
+	backend: new RedisBackend({
+		connectionString: 'redis://localhost:6379',
+	}),
 });
 
-
-await agenda.now('benchmark-job', { to: 'admin@example.com' });
+while(true) {	
+    await agenda.now('benchmark-job', { to: 'admin@example.com' });
+    await sleep(50);
+}

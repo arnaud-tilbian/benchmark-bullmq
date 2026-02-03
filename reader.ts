@@ -7,13 +7,13 @@ const agenda = new Agenda({
 		connectionString: 'redis://localhost:6379',
 	}),
     defaultLockLimit:20,
-	processEvery: '5 seconds',
+	processEvery: 50,
 });
 
 agenda.define(
 	'benchmark-job',
 	async job => {
-        console.log("titi",job)
+        console.log("titi")
 	},
 );
 
